@@ -34,9 +34,7 @@ public class MainActivity extends Activity {
     private Button play_pause, record;
     private MediaRecorder mRecorder;
     private MediaPlayer mPlayer;
-    // string variable is created for storing a file name
     private static String mFileName = null;
-    // constant for storing audio permission
     public static final int REQUEST_AUDIO_PERMISSION_CODE = 1;
 
     @Override
