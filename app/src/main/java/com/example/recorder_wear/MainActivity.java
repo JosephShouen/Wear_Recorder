@@ -6,6 +6,29 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.os.Build;
 import android.os.Bundle;
+import android.widget.Button;
+import android.content.pm.PackageManager;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
+import android.os.Environment;
+import android.util.Log;
+import android.view.View;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
+import static java.lang.Boolean.FALSE;
+import static java.lang.Boolean.TRUE;
+import android.Manifest;
+import android.app.Activity;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.os.Build;
+import android.os.Bundle;
 
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
@@ -64,13 +87,12 @@ import com.example.recorder_wear.databinding.ActivityMainBinding;
 public class MainActivity extends Activity {
 
     private ActivityMainBinding binding;
-
     private Button play_pause, record;
-    private MediaPlayer mPlayer; //пока бесполезен
-    private static String mFileName = null;
+    private MediaPlayer mPlayer;
 
-    //start
-    public static final int REQUEST_AUDIO_PERMISSION_CODE = 1;
+    private static String wav = null;
+    private static String pcm = null;
+    public static final int MULTIPLE_PERMISSIONS = 100;
     private static final int SAMPLING_RATE_IN_HZ = 44100;
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
@@ -92,10 +114,13 @@ public class MainActivity extends Activity {
     /**
      * Signals whether a recording is in progress (true) or not (false).
      */
-    private final AtomicBoolean recordingInProgress = new AtomicBoolean(false);
-    private AudioRecord recorder = null;
+    private static final AtomicBoolean recordingInProgress = new AtomicBoolean(false);
+    private static AudioRecord recorder = null;
     private Thread recordingThread = null;
-    //end
+
+    //new
+    final int bpp = 16;
+    //new
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -112,8 +137,10 @@ public class MainActivity extends Activity {
         String init_recordText=record.getText().toString(); //изначальное значение кнопки record
 
         //если файл уже существует - значит он удалится при последующем запуске
-        mFileName = getExternalCacheDir().getAbsolutePath();
-        mFileName += "/AudioRecording.3gp";
+        wav = getExternalCacheDir().getAbsolutePath();
+        wav += "/recording.wav";
+        pcm = getExternalCacheDir().getAbsolutePath();
+        pcm += "/recording.pcm";
 
         record.setOnClickListener (new View.OnClickListener()
         {
@@ -123,8 +150,9 @@ public class MainActivity extends Activity {
                 //если значение кнопки Start Record - стратуем, и меняем на Stop Record
                 //иначе - стопуем
                 if (recordText == init_recordText) {
-                    startRecording();
-                    record.setText("Stop Record");
+                    if (startRecording()){
+                        record.setText("Stop Record");
+                    }
                 } else {
                     pauseRecording();
                     record.setText(init_recordText);
@@ -152,16 +180,20 @@ public class MainActivity extends Activity {
 
 
 
-    private void startRecording() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+    private boolean startRecording() {
+        if ((ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) + ContextCompat.checkSelfPermission(MainActivity.this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE)) != PackageManager.PERMISSION_GRANTED) {
             checkPermission();
+            return FALSE;
+        } else {
+            recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, SAMPLING_RATE_IN_HZ,
+                    CHANNEL_CONFIG, AUDIO_FORMAT, BUFFER_SIZE);
+            recorder.startRecording();
+            recordingInProgress.set(true);
+            recordingThread = new Thread(new RecordingRunnable(), "Recording Thread");
+            recordingThread.start();
+            return TRUE;
         }
-        recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, SAMPLING_RATE_IN_HZ,
-                CHANNEL_CONFIG, AUDIO_FORMAT, BUFFER_SIZE);
-        recorder.startRecording();
-        recordingInProgress.set(true);
-        recordingThread = new Thread(new RecordingRunnable(), "Recording Thread");
-        recordingThread.start();
     }
 
     public void pauseRecording() {
@@ -170,17 +202,18 @@ public class MainActivity extends Activity {
         recorder.release();
         recorder = null;
         recordingThread = null;
+        createWavFile(pcm,wav);
     }
 
     //start
-    private class RecordingRunnable implements Runnable {
+    static class RecordingRunnable implements Runnable {
 
         @Override
         public void run() {
-            final File file = new File(Environment.getExternalStorageDirectory(), "recording.pcm");
+            final File raw = new File(Environment.getExternalStorageDirectory(), "recording.pcm");
             final ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
 
-            try (final FileOutputStream outStream = new FileOutputStream(file)) {
+            try (final FileOutputStream outStream = new FileOutputStream(raw)) {
                 while (recordingInProgress.get()) {
                     int result = recorder.read(buffer, BUFFER_SIZE);
                     if (result < 0) {
@@ -217,27 +250,28 @@ public class MainActivity extends Activity {
 
         // for playing our recorded audio
         // we are using media player class.
-//        mPlayer = new MediaPlayer();
-//        try {
+        mPlayer = new MediaPlayer();
+        try {
         // below method is used to set the
         // data source which will be our file name
-//            mPlayer.setDataSource(mFileName);
+            final File wav_ss = new File(Environment.getExternalStorageDirectory(), "recording.wav");
+            mPlayer.setDataSource(String.valueOf(wav_ss));
 
         // below method will prepare our media player
-//            mPlayer.prepare();
+            mPlayer.prepare();
 
         // below method will start our media player.
-//            mPlayer.start();
-//        } catch (IOException e) {
-//           Log.e("TAG", "prepare() failed");
-//        }
+            mPlayer.start();
+        } catch (IOException e) {
+           Log.e("TAG", "prepare() failed");
+        }
     }
 
     public void pausePlaying() {
         // this method will release the media player
         // class and pause the playing of our recorded audio.
-//        mPlayer.release();
-//        mPlayer = null;
+        mPlayer.release();
+        mPlayer = null;
     }
 
 
@@ -246,13 +280,12 @@ public class MainActivity extends Activity {
 
 
 
-    public static final int MULTIPLE_PERMISSIONS = 100;
+
 
     // function to check permissions
     private void checkPermission() {
         if ((ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) + ContextCompat.checkSelfPermission(MainActivity.this,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE)) != PackageManager.PERMISSION_GRANTED) {
-
             if (ActivityCompat.shouldShowRequestPermissionRationale
                     (MainActivity.this, Manifest.permission.RECORD_AUDIO) ||
                     ActivityCompat.shouldShowRequestPermissionRationale
@@ -285,7 +318,6 @@ public class MainActivity extends Activity {
         }
     }
 
-
     // Function to initiate after permissions are given by user
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -316,6 +348,84 @@ public class MainActivity extends Activity {
                     }
                 }
 
+        }
+    }
+
+    private void wavHeader(FileOutputStream fileOutputStream, long totalAudioLen, long totalDataLen, int channels, long byteRate){
+        try {
+            byte[] header = new byte[44];
+            header[0] = 'R'; // RIFF/WAVE header
+            header[1] = 'I';
+            header[2] = 'F';
+            header[3] = 'F';
+            header[4] = (byte) (totalDataLen & 0xff);
+            header[5] = (byte) ((totalDataLen >> 8) & 0xff);
+            header[6] = (byte) ((totalDataLen >> 16) & 0xff);
+            header[7] = (byte) ((totalDataLen >> 24) & 0xff);
+            header[8] = 'W';
+            header[9] = 'A';
+            header[10] = 'V';
+            header[11] = 'E';
+            header[12] = 'f'; // 'fmt ' chunk
+            header[13] = 'm';
+            header[14] = 't';
+            header[15] = ' ';
+            header[16] = 16; // 4 bytes: size of 'fmt ' chunk
+            header[17] = 0;
+            header[18] = 0;
+            header[19] = 0;
+            header[20] = 1; // format = 1
+            header[21] = 0;
+            header[22] = (byte) channels;
+            header[23] = 0;
+            header[24] = (byte) ((long) SAMPLING_RATE_IN_HZ & 0xff);
+            header[25] = (byte) (((long) SAMPLING_RATE_IN_HZ >> 8) & 0xff);
+            header[26] = (byte) (((long) SAMPLING_RATE_IN_HZ >> 16) & 0xff);
+            header[27] = (byte) (((long) SAMPLING_RATE_IN_HZ >> 24) & 0xff);
+            header[28] = (byte) (byteRate & 0xff);
+            header[29] = (byte) ((byteRate >> 8) & 0xff);
+            header[30] = (byte) ((byteRate >> 16) & 0xff);
+            header[31] = (byte) ((byteRate >> 24) & 0xff);
+            header[32] = (byte) (2 * 16 / 8); // block align
+            header[33] = 0;
+            header[34] = bpp; // bits per sample
+            header[35] = 0;
+            header[36] = 'd';
+            header[37] = 'a';
+            header[38] = 't';
+            header[39] = 'a';
+            header[40] = (byte) (totalAudioLen & 0xff);
+            header[41] = (byte) ((totalAudioLen >> 8) & 0xff);
+            header[42] = (byte) ((totalAudioLen >> 16) & 0xff);
+            header[43] = (byte) ((totalAudioLen >> 24) & 0xff);
+            fileOutputStream.write(header, 0, 44);
+        }
+        catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+
+    public void createWavFile(String tempPath, String wavPath){
+        try {
+            final File raw_s = new File(Environment.getExternalStorageDirectory(), "recording.pcm");
+            final File wav_s = new File(Environment.getExternalStorageDirectory(), "recording.wav");
+            FileInputStream fileInputStream = new FileInputStream(raw_s);
+            FileOutputStream fileOutputStream = new FileOutputStream(wav_s);
+            byte[] data = new byte[BUFFER_SIZE];
+            int channels = 1;
+            long byteRate = bpp * SAMPLING_RATE_IN_HZ * channels / 8;
+            long totalAudioLen = fileInputStream.getChannel().size();
+            long totalDataLen = totalAudioLen + 36;
+            wavHeader(fileOutputStream,totalAudioLen,totalDataLen,channels,byteRate);
+            while (fileInputStream.read(data) != -1) {
+                fileOutputStream.write(data);
+            }
+            fileInputStream.close();
+            fileOutputStream.close();
+        }
+        catch (Exception e){
+            e.printStackTrace();
         }
     }
 
